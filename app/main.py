@@ -37,6 +37,7 @@ def main():
             continue
 
         intent_result = classify_intent(user_input, session)
+        print(f"AI work in {intent_result.intent} intent (confidence: {intent_result.confidence:.2f})")
         if intent_result.intent == IntentType.EXIT:
             print("Bye!")
             return

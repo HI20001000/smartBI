@@ -1,0 +1,523 @@
+version: 1
+semantic_layer:
+  name: smartbi_demo_macau_banking
+  dialect: mysql
+  default_database: smartbi_demo
+
+  governance:
+    owner: data-platform
+    description: >
+      SmartBI semantic layer for Macau banking demo.
+      Authoritative metric definitions + join graph + security policies.
+    default_query_limits:
+      max_rows: 1000
+      timeout_seconds: 30
+      require_time_filter: true
+
+  # ----------------------------
+  # 1) Entities (shared dimensions)
+  # ----------------------------
+  entities:
+    calendar:
+      table: dim_calendar
+      primary_key: biz_date
+      fields:
+        - name: biz_date
+          type: date
+          expr: dim_calendar.biz_date
+          synonyms: [日期, 交易日, business_date, day]
+        - name: year
+          type: int
+          expr: dim_calendar.year
+          synonyms: [年, 年度]
+        - name: month
+          type: int
+          expr: dim_calendar.month
+          synonyms: [月, 月份]
+        - name: yyyy_mm
+          type: string
+          expr: dim_calendar.yyyy_mm
+          synonyms: [年月, 月度, month_id]
+        - name: is_month_end
+          type: boolean
+          expr: dim_calendar.is_month_end
+          synonyms: [月末]
+
+    branch:
+      table: dim_branch
+      primary_key: branch_id
+      fields:
+        - name: branch_code
+          type: string
+          expr: dim_branch.branch_code
+          synonyms: [分行代碼, 網點代碼]
+        - name: branch_name
+          type: string
+          expr: dim_branch.branch_name
+          synonyms: [分行, 網點, 支行]
+        - name: region
+          type: string
+          expr: dim_branch.region
+          synonyms: [區域, 地區, 澳門半島, 氹仔, 路環, 路氹城]
+        - name: city
+          type: string
+          expr: dim_branch.city
+          synonyms: [城市]
+        - name: opened_date
+          type: date
+          expr: dim_branch.opened_date
+          synonyms: [開業日]
+
+    product:
+      table: dim_product
+      primary_key: product_id
+      fields:
+        - name: product_code
+          type: string
+          expr: dim_product.product_code
+          synonyms: [產品代碼]
+        - name: product_name
+          type: string
+          expr: dim_product.product_name
+          synonyms: [產品, 產品名稱]
+        - name: product_type
+          type: string
+          expr: dim_product.product_type
+          synonyms: [產品類型, DEPOSIT, LOAN, CARD, WEALTH]
+        - name: is_active
+          type: boolean
+          expr: dim_product.is_active
+          synonyms: [是否上架, 啟用]
+
+    customer:
+      table: core_customer
+      primary_key: customer_id
+      fields:
+        - name: customer_id
+          type: id
+          expr: core_customer.customer_id
+        - name: customer_no
+          type: string
+          expr: core_customer.customer_no
+          synonyms: [客戶號]
+        - name: gender
+          type: string
+          expr: core_customer.gender
+          synonyms: [性別]
+        - name: risk_level
+          type: string
+          expr: core_customer.risk_level
+          synonyms: [風險等級, 風險層級]
+        - name: kyc_status
+          type: string
+          expr: core_customer.kyc_status
+          synonyms: [KYC狀態, 實名狀態]
+        - name: created_at
+          type: datetime
+          expr: core_customer.created_at
+          synonyms: [建立時間, 註冊時間]
+
+        # --- Derived (non-PII) ---
+        - name: age
+          type: int
+          expr: "TIMESTAMPDIFF(YEAR, core_customer.birth_date, CURDATE())"
+          description: "Derived age; birth_date is not exposed."
+          synonyms: [年齡]
+        - name: age_bucket
+          type: string
+          expr: >
+            CASE
+              WHEN core_customer.birth_date IS NULL THEN 'UNKNOWN'
+              WHEN TIMESTAMPDIFF(YEAR, core_customer.birth_date, CURDATE()) < 25 THEN '<25'
+              WHEN TIMESTAMPDIFF(YEAR, core_customer.birth_date, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
+              WHEN TIMESTAMPDIFF(YEAR, core_customer.birth_date, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
+              WHEN TIMESTAMPDIFF(YEAR, core_customer.birth_date, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
+              ELSE '55+'
+            END
+          synonyms: [年齡段]
+
+      # PII/敏感欄位：存在於表中，但語意層禁止被選取或下鑽明細
+      sensitive_fields:
+        - name: full_name
+          expr: core_customer.full_name
+          classification: PII
+          allowed: false
+        - name: id_no
+          expr: core_customer.id_no
+          classification: PII
+          allowed: false
+        - name: phone
+          expr: core_customer.phone
+          classification: PII
+          allowed: false
+        - name: email
+          expr: core_customer.email
+          classification: PII
+          allowed: false
+        - name: birth_date
+          expr: core_customer.birth_date
+          classification: SENSITIVE
+          allowed: false
+
+    account:
+      table: core_account
+      primary_key: account_id
+      fields:
+        - name: account_id
+          type: id
+          expr: core_account.account_id
+        - name: currency
+          type: string
+          expr: core_account.currency
+          synonyms: [幣別, MOP, HKD]
+        - name: status
+          type: string
+          expr: core_account.status
+          synonyms: [帳戶狀態, ACTIVE, FROZEN, CLOSED]
+        - name: opened_at
+          type: datetime
+          expr: core_account.opened_at
+          synonyms: [開戶時間]
+        - name: closed_at
+          type: datetime
+          expr: core_account.closed_at
+          synonyms: [銷戶時間]
+
+      sensitive_fields:
+        - name: account_no
+          expr: core_account.account_no
+          classification: SENSITIVE_IDENTIFIER
+          allowed: false
+
+    loan:
+      table: core_loan
+      primary_key: loan_id
+      fields:
+        - name: loan_id
+          type: id
+          expr: core_loan.loan_id
+        - name: principal_amt
+          type: decimal
+          expr: core_loan.principal_amt
+          synonyms: [本金]
+        - name: interest_rate
+          type: decimal
+          expr: core_loan.interest_rate
+          synonyms: [利率]
+        - name: start_date
+          type: date
+          expr: core_loan.start_date
+          synonyms: [起始日]
+        - name: end_date
+          type: date
+          expr: core_loan.end_date
+          synonyms: [到期日]
+        - name: status
+          type: string
+          expr: core_loan.status
+          synonyms: [貸款狀態, ACTIVE, PAID_OFF, DEFAULT, WRITE_OFF]
+
+      sensitive_fields:
+        - name: loan_no
+          expr: core_loan.loan_no
+          classification: SENSITIVE_IDENTIFIER
+          allowed: false
+
+  # ----------------------------
+  # 2) Datasets (facts + join graph + metrics)
+  # ----------------------------
+  datasets:
+    deposit_balance_daily:
+      description: "Deposit accounts daily end balance snapshot."
+      from: fact_account_balance_daily as bal
+      primary_key: [bal.biz_date, bal.account_id]
+
+      time_dimensions:
+        - name: biz_date
+          expr: bal.biz_date
+          grain: day
+
+      joins:
+        - entity: calendar
+          type: many_to_one
+          on: "bal.biz_date = dim_calendar.biz_date"
+        - entity: account
+          type: many_to_one
+          on: "bal.account_id = core_account.account_id"
+        - entity: branch
+          type: many_to_one
+          on: "core_account.branch_id = dim_branch.branch_id"
+        - entity: product
+          type: many_to_one
+          on: "core_account.product_id = dim_product.product_id"
+        - entity: customer
+          type: many_to_one
+          on: "core_account.customer_id = core_customer.customer_id"
+
+      dimensions:
+        - name: hold_amount
+          type: decimal
+          expr: bal.hold_amount
+          synonyms: [凍結金額]
+        - name: available_bal
+          type: decimal
+          expr: bal.available_bal
+          synonyms: [可用餘額]
+
+      metrics:
+        - name: deposit_end_balance
+          type: sum
+          expr: bal.end_balance
+          format: currency
+          unit: MOP
+          synonyms: [存款餘額, 期末餘額, deposit_balance]
+
+        - name: deposit_avg_daily_balance
+          type: avg
+          expr: bal.end_balance
+          format: currency
+          unit: MOP
+          description: "Average of daily end_balance over selected rows/days."
+          synonyms: [日均餘額, 平均餘額]
+
+        - name: deposit_accounts
+          type: count_distinct
+          expr: bal.account_id
+          synonyms: [存款帳戶數, 帳戶數]
+
+        - name: deposit_avg_balance_per_account
+          type: derived
+          expr: "SUM(bal.end_balance) / NULLIF(COUNT(DISTINCT bal.account_id), 0)"
+          format: currency
+          unit: MOP
+          description: "Total balance divided by distinct accounts (within filter/time window)."
+          synonyms: [戶均存款]
+
+    transactions:
+      description: "Account transaction ledger."
+      from: fact_transaction as tx
+      primary_key: tx.txn_id
+
+      time_dimensions:
+        - name: biz_date
+          expr: tx.biz_date
+          grain: day
+        - name: txn_ts
+          expr: tx.txn_ts
+          grain: datetime
+
+      joins:
+        - entity: calendar
+          type: many_to_one
+          on: "tx.biz_date = dim_calendar.biz_date"
+        - entity: account
+          type: many_to_one
+          on: "tx.account_id = core_account.account_id"
+        - entity: branch
+          type: many_to_one
+          on: "core_account.branch_id = dim_branch.branch_id"
+        - entity: product
+          type: many_to_one
+          on: "core_account.product_id = dim_product.product_id"
+        - entity: customer
+          type: many_to_one
+          on: "core_account.customer_id = core_customer.customer_id"
+
+      dimensions:
+        - name: txn_type
+          type: string
+          expr: tx.txn_type
+          synonyms: [交易類型, DEPOSIT, WITHDRAW, TRANSFER_IN, TRANSFER_OUT, FEE, INTEREST]
+        - name: channel
+          type: string
+          expr: tx.channel
+          synonyms: [渠道, BRANCH, ATM, MOBILE, WEB, API]
+        - name: merchant_cat
+          type: string
+          expr: tx.merchant_cat
+          synonyms: [商戶類別]
+
+      metrics:
+        - name: txn_count
+          type: count
+          expr: tx.txn_id
+          synonyms: [交易筆數, 交易量]
+
+        - name: net_txn_amount
+          type: sum
+          expr: tx.amount
+          format: currency
+          unit: MOP
+          description: "Net amount (inflow positive, outflow negative) from account perspective."
+          synonyms: [交易淨額, 淨流入]
+
+        - name: inflow_amount
+          type: sum
+          expr: "CASE WHEN tx.amount > 0 THEN tx.amount ELSE 0 END"
+          format: currency
+          unit: MOP
+          synonyms: [流入金額, 入帳]
+
+        - name: outflow_amount
+          type: sum
+          expr: "CASE WHEN tx.amount < 0 THEN -tx.amount ELSE 0 END"
+          format: currency
+          unit: MOP
+          synonyms: [流出金額, 出帳]
+
+        - name: fee_income
+          type: sum
+          expr: "CASE WHEN tx.txn_type = 'FEE' THEN -tx.amount ELSE 0 END"
+          format: currency
+          unit: MOP
+          description: "Assumes fee is negative in account ledger; convert to positive income."
+          synonyms: [手續費收入,  शुल्क, fee]
+
+        - name: interest_paid_to_customers
+          type: sum
+          expr: "CASE WHEN tx.txn_type = 'INTEREST' THEN tx.amount ELSE 0 END"
+          format: currency
+          unit: MOP
+          description: "Interest credited to accounts (usually bank expense)."
+          synonyms: [利息支出, 存款利息]
+
+    loans_daily_balance:
+      description: "Loan daily outstanding/overdue snapshot."
+      from: fact_loan_balance_daily as lbal
+      primary_key: [lbal.biz_date, lbal.loan_id]
+
+      time_dimensions:
+        - name: biz_date
+          expr: lbal.biz_date
+          grain: day
+
+      joins:
+        - entity: calendar
+          type: many_to_one
+          on: "lbal.biz_date = dim_calendar.biz_date"
+        - entity: loan
+          type: many_to_one
+          on: "lbal.loan_id = core_loan.loan_id"
+        - entity: branch
+          type: many_to_one
+          on: "core_loan.branch_id = dim_branch.branch_id"
+        - entity: product
+          type: many_to_one
+          on: "core_loan.product_id = dim_product.product_id"
+        - entity: customer
+          type: many_to_one
+          on: "core_loan.customer_id = core_customer.customer_id"
+
+      dimensions:
+        - name: overdue_days
+          type: int
+          expr: lbal.overdue_days
+          synonyms: [逾期天數]
+
+      metrics:
+        - name: loan_outstanding
+          type: sum
+          expr: lbal.outstanding_bal
+          format: currency
+          unit: MOP
+          synonyms: [貸款餘額, 未償餘額]
+
+        - name: overdue_amount
+          type: sum
+          expr: lbal.overdue_amt
+          format: currency
+          unit: MOP
+          synonyms: [逾期金額]
+
+        - name: delinquent_loans
+          type: count_distinct
+          expr: "CASE WHEN lbal.overdue_days > 0 THEN lbal.loan_id ELSE NULL END"
+          synonyms: [逾期貸款數]
+
+        - name: overdue_ratio
+          type: derived
+          expr: "SUM(lbal.overdue_amt) / NULLIF(SUM(lbal.outstanding_bal), 0)"
+          format: percent
+          description: "Overdue amount divided by outstanding balance."
+          synonyms: [逾期率]
+
+        - name: active_loans
+          type: count_distinct
+          expr: "CASE WHEN core_loan.status = 'ACTIVE' THEN core_loan.loan_id ELSE NULL END"
+          synonyms: [在貸筆數]
+
+    credit_score_monthly:
+      description: "Customer credit score monthly snapshot."
+      from: fact_credit_score_monthly as cs
+      primary_key: [cs.yyyy_mm, cs.customer_id]
+
+      time_dimensions:
+        - name: yyyy_mm
+          expr: cs.yyyy_mm
+          grain: month
+
+      joins:
+        - entity: customer
+          type: many_to_one
+          on: "cs.customer_id = core_customer.customer_id"
+
+      dimensions:
+        - name: score_band
+          type: string
+          expr: cs.score_band
+          synonyms: [評分段, A, B, C, D, E]
+        - name: model_ver
+          type: string
+          expr: cs.model_ver
+          synonyms: [模型版本]
+
+      metrics:
+        - name: avg_credit_score
+          type: avg
+          expr: cs.score
+          synonyms: [平均信用分, 平均分數]
+
+        - name: customers_scored
+          type: count_distinct
+          expr: cs.customer_id
+          synonyms: [已評分客戶數]
+
+  # ----------------------------
+  # 3) Security policies (semantic-level)
+  # ----------------------------
+  security:
+    # 只要選取/分組包含 sensitive_fields，就拒絕或要求特權角色
+    field_access:
+      default: allow
+      deny_if_selected:
+        classifications: [PII, SENSITIVE_IDENTIFIER, SENSITIVE]
+
+    # Row-level security 示例：依 branch.region 做隔離（可按你們實際 RBAC 改）
+    row_level:
+      enabled: true
+      rules:
+        - name: region_scope
+          applies_to_datasets: [deposit_balance_daily, transactions, loans_daily_balance]
+          predicate_template: "dim_branch.region IN (${user.allowed_regions})"
+
+    # 允許下鑽明細的白名單（避免把 fact ledger 全吐出來）
+    drilldown:
+      default: deny
+      allow_datasets:
+        - deposit_balance_daily
+      constraints:
+        - require_aggregated: true
+        - max_rows: 200
+
+  # ----------------------------
+  # 4) Natural language mapping helpers
+  # ----------------------------
+  glossary:
+    synonyms:
+      存款: [deposit, DEPOSIT]
+      貸款: [loan, LOAN]
+      餘額: [balance, outstanding]
+      逾期: [overdue, delinquent]
+      手續費: [fee]
+      利息: [interest]
+      交易: [transaction, txn]
