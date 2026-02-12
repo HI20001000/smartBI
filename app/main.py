@@ -1,59 +1,76 @@
-from __future__ import annotations
+import os
+from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException
-from sqlalchemy import create_engine, text
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from app.cli_ui import print_startup_ui
 
-from app.agent import SQLAgentService
-from app.charting import build_chart_spec, summarize_insight
-from app.config import ConfigError, load_config
-from app.db_init import ensure_database_initialized
-from app.schemas import AskRequest, AskResponse
-
-app = FastAPI(title="SmartBI SQL Agent API")
-
-_state: dict[str, object] = {}
+def must_get_env(key: str) -> str:
+    val = os.getenv(key, "").strip()
+    if not val:
+        raise RuntimeError(f"Missing required env var: {key}")
+    return val
 
 
-@app.on_event("startup")
-def startup() -> None:
-    try:
-        config = load_config()
-    except ConfigError as exc:
-        raise RuntimeError(f"Configuration error: {exc}") from exc
+def main():
+    load_dotenv()
 
-    engine = create_engine(config.database_url, pool_pre_ping=True)
-    ensure_database_initialized(engine, seed_sql_path=config.seed_sql_path)
+    base_url = must_get_env("LLM_BASE_URL")
+    model = must_get_env("LLM_MODEL")
+    api_key = os.getenv("LLM_API_KEY", "empty").strip() or "empty"
 
-    _state["config"] = config
-    _state["engine"] = engine
-    _state["agent"] = SQLAgentService(config=config, engine=engine)
-
-
-@app.post("/ask", response_model=AskResponse)
-def ask(req: AskRequest) -> AskResponse:
-    engine = _state.get("engine")
-    agent = _state.get("agent")
-    config = _state.get("config")
-
-    if not engine or not agent or not config:
-        raise HTTPException(status_code=503, detail="Service is not ready yet")
-
-    sql_result = agent.generate_sql(req.question, max_rows=config.sql_max_rows)
-
-    with engine.connect() as conn:
-        rows = conn.execute(text(sql_result.sql)).mappings().all()
-
-    result_rows = [dict(row) for row in rows]
-    columns = list(result_rows[0].keys()) if result_rows else []
-    chart_spec = build_chart_spec(result_rows, columns, req.chart_type)
-    insight = summarize_insight(result_rows, columns)
-
-    return AskResponse(
-        question=req.question,
-        sql=sql_result.sql,
-        columns=columns,
-        rows=result_rows,
-        chart_spec=chart_spec,
-        insight=insight,
-        retries=sql_result.retries,
+    llm = ChatOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        temperature=0.2,
     )
+
+    # 多輪對話歷史（含 system 提示）
+    history = [
+        SystemMessage(content="你是個助理，請用繁體中文回答，回答要清楚、簡潔。")
+    ]
+
+    print_startup_ui(
+        model=model,
+        base_url=base_url,
+        version="1.0.0",
+        app_name="SmartBI Chat CLI",
+        framework="LangChain",
+        clear_screen=True,
+    )
+
+    """
+    Chat Loop
+    1、
+    """
+    while True:
+        try:
+            user_input = input("You> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[Input Error] :{e}. Exiting.")
+            return
+
+        if not user_input:
+            continue
+        if user_input == "/exit":
+            print("[Error] Good")
+
+        history.append(HumanMessage(content=user_input))
+
+        try:
+            resp = llm.invoke(history)
+            reply = getattr(resp, "content", str(resp)).strip()
+        except Exception as e:
+            # 不中斷 session，但提示錯誤
+            print(f"[ERROR] LLM call failed: {e}")
+            # 回滾本輪 user 訊息，避免污染 history
+            history.pop()
+            continue
+
+        history.append(AIMessage(content=reply))
+        print(f"AI> {reply}\n")
+
+
+if __name__ == "__main__":
+    main()
