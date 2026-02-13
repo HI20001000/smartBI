@@ -55,7 +55,12 @@ def main():
 
         if intent_result.intent == IntentType.SQL:
             features = session.extract_sql_features_with_llm(user_input)
+            print(
+                f"\n\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
+                f"Step B 特徵提取結果：{features}\n\n")
+            
             token_hits = matcher.match(features)
+            print(f"\n\nStep C Token 命中結果：{token_hits}\n\n")
             enhanced_plan = build_semantic_plan(
                 extracted_features=features,
                 token_hits=token_hits,
@@ -124,8 +129,6 @@ def main():
                     chart_status = f"Step G/H/I 略過或失敗：{exc}"
 
             print(
-                f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
-                f"Step B 特徵提取結果：{features}\n"
                 f"Step C Token 命中結果：{token_hits}\n"
                 f"Step D 規劃結果（Deterministic）：{enhanced_plan}\n"
                 f"Step E 規則校驗：{validation}\n"
