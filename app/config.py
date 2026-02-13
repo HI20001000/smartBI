@@ -15,6 +15,14 @@ def _get(key: str, default: str | None = None) -> str | None:
     return v if v != "" else default
 
 
+def _get_first(keys: list[str], default: str | None = None) -> str | None:
+    for key in keys:
+        value = _get(key, None)
+        if value is not None:
+            return value
+    return default
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_base_url: str
@@ -56,10 +64,10 @@ class Settings:
             llm_api_key=api_key or "empty",
             temperature=temp,
             max_tokens=max_tokens,
-            db_host=_get("DB_HOST"),
-            db_port=int(_get("DB_PORT", "3306") or "3306"),
-            db_user=_get("DB_USER"),
-            db_password=_get("DB_PASSWORD"),
-            db_name=_get("DB_NAME"),
+            db_host=_get_first(["DB_HOST", "MYSQL_HOST"]),
+            db_port=int(_get_first(["DB_PORT", "MYSQL_PORT"], "3306") or "3306"),
+            db_user=_get_first(["DB_USER", "MYSQL_USER"]),
+            db_password=_get_first(["DB_PASSWORD", "MYSQL_PASSWORD"]),
+            db_name=_get_first(["DB_NAME", "MYSQL_DATABASE"]),
             chart_output_dir=_get("CHART_OUTPUT_DIR", "artifacts/charts") or "artifacts/charts",
         )

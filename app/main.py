@@ -85,8 +85,17 @@ def main():
                         limit=governance_limits.get("max_rows", 200),
                     )
 
-            chart_status = "Step G/H/I 略過：未配置 DB_HOST/DB_USER/DB_NAME。"
-            if generated_sql and settings.db_host and settings.db_user and settings.db_name:
+            missing_db_fields = [
+                name
+                for name, value in (("db_host", settings.db_host), ("db_user", settings.db_user), ("db_name", settings.db_name))
+                if not value
+            ]
+            chart_status = (
+                "Step G/H/I 略過：缺少 DB 設定 " + ", ".join(missing_db_fields)
+                if missing_db_fields
+                else "Step G/H/I 略過：未啟用 SQL 執行。"
+            )
+            if generated_sql and not missing_db_fields:
                 try:
                     executor = SQLQueryExecutor(
                         host=settings.db_host,
