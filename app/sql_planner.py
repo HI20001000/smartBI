@@ -5,6 +5,8 @@ from typing import Any
 
 
 _DATE_RANGE_PATTERN = re.compile(r"^\s*(\d{4}-\d{2}-\d{2})\s*(?:TO|to|~|-)\s*(\d{4}-\d{2}-\d{2})\s*$")
+_YEAR_PATTERN = re.compile(r"^\s*(\d{4})\s*$")
+_MONTH_TAG_PATTERN = re.compile(r"^\s*MONTH:(0?[1-9]|1[0-2])\s*$", re.IGNORECASE)
 
 
 def _unique_keep_order(values: list[str]) -> list[str]:
@@ -22,18 +24,42 @@ def _build_time_filter(time_range: str) -> list[dict[str, Any]]:
         return []
 
     m = _DATE_RANGE_PATTERN.match(time_range)
-    if not m:
-        return []
+    if m:
+        start_date, end_date = m.group(1), m.group(2)
+        return [
+            {
+                "field": "calendar.biz_date",
+                "op": "between",
+                "value": [start_date, end_date],
+                "source": "step_b_time_range",
+            }
+        ]
 
-    start_date, end_date = m.group(1), m.group(2)
-    return [
-        {
-            "field": "calendar.biz_date",
-            "op": "between",
-            "value": [start_date, end_date],
-            "source": "step_b_time_range",
-        }
-    ]
+    year_match = _YEAR_PATTERN.match(time_range)
+    if year_match:
+        year = year_match.group(1)
+        return [
+            {
+                "field": "calendar.biz_date",
+                "op": "between",
+                "value": [f"{year}-01-01", f"{year}-12-31"],
+                "source": "step_b_time_range_year",
+            }
+        ]
+
+    month_match = _MONTH_TAG_PATTERN.match(time_range)
+    if month_match:
+        month = int(month_match.group(1))
+        return [
+            {
+                "field": "calendar.month",
+                "op": "=",
+                "value": f"{month:02d}",
+                "source": "step_b_time_range_month_tag",
+            }
+        ]
+
+    return []
 
 
 def build_semantic_plan(
