@@ -86,7 +86,7 @@ class LLMChatSession:
                     "請從使用者自然語言提取 SQL 相關關鍵資訊，"
                     "並且只能輸出 JSON。"
                     "輸出格式固定為："
-                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":"","needs_clarification":false}'
+                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":""}'
                     "說明："
                     "tokens 放通用關鍵詞；metrics 放指標詞；dimensions 放維度詞；"
                     "filters 放條件詞。"
@@ -109,7 +109,6 @@ class LLMChatSession:
                 "filters": [],
                 "time_start": "",
                 "time_end": "",
-                "needs_clarification": True,
             }
 
         return {
@@ -119,5 +118,4 @@ class LLMChatSession:
             "filters": parsed.get("filters", []) or [],
             "time_start": str(parsed.get("time_start", "") or ""),
             "time_end": str(parsed.get("time_end", "") or ""),
-            "needs_clarification": bool(parsed.get("needs_clarification", False)),
         }

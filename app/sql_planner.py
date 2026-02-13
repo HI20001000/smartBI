@@ -31,24 +31,6 @@ def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[
     ]
 
 
-def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[str, Any]]:
-    if not isinstance(time_start, str) or not isinstance(time_end, str):
-        return []
-    start = time_start.strip()
-    end = time_end.strip()
-    if not start or not end:
-        return []
-
-    return [
-        {
-            "field": "calendar.biz_date",
-            "op": "between",
-            "value": [start, end],
-            "source": "step_b_time_bounds",
-        }
-    ]
-
-
 def build_semantic_plan(
     extracted_features: dict[str, Any],
     token_hits: dict[str, Any],
