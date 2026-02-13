@@ -32,15 +32,37 @@ class SQLQueryExecutor:
         self.read_timeout = int(read_timeout)
 
     @staticmethod
+    def _normalize_single_select_sql(sql: str) -> str | None:
+        normalized = (sql or "").strip()
+        if not normalized:
+            return None
+
+        # allow at most one trailing semicolon
+        if normalized.endswith(";"):
+            normalized = normalized[:-1].rstrip()
+
+        # still contains semicolon means possible multi-statement
+        if ";" in normalized:
+            return None
+
+        lowered = normalized.lower()
+        if not lowered.startswith("select"):
+            return None
+
+        blocked = [" insert ", " update ", " delete ", " drop ", " alter ", " create "]
+        wrapped = f" {lowered} "
+        if any(token in wrapped for token in blocked):
+            return None
+
+        return normalized
+
+    @staticmethod
     def _is_safe_select(sql: str) -> bool:
-        normalized = (sql or "").strip().lower()
-        if not normalized.startswith("select"):
-            return False
-        blocked = [" insert ", " update ", " delete ", " drop ", " alter ", " create ", ";"]
-        return not any(token in f" {normalized} " for token in blocked)
+        return SQLQueryExecutor._normalize_single_select_sql(sql) is not None
 
     def run(self, sql: str, max_rows: int = 1000) -> QueryResult:
-        if not self._is_safe_select(sql):
+        normalized_sql = self._normalize_single_select_sql(sql)
+        if not normalized_sql:
             raise ValueError("Only single SELECT queries are allowed.")
 
         try:
@@ -49,7 +71,7 @@ class SQLQueryExecutor:
         except Exception as exc:  # pragma: no cover - environment dependent
             raise RuntimeError("pymysql is required for SQL execution. Please install dependency.") from exc
 
-        limited_sql = sql.strip()
+        limited_sql = normalized_sql
         if " limit " not in limited_sql.lower():
             limited_sql = f"{limited_sql}\nLIMIT {int(max_rows)}"
 
