@@ -48,7 +48,6 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
-
     def generate_sql_from_json_plan_with_llm(
         self,
         user_input: str,
