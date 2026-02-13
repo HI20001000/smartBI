@@ -2,10 +2,13 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
+from app.chart_planner import build_chart_spec
+from app.chart_renderer import render_chart
 from app.cli_ui import print_startup_ui
 from app.config import Settings
 from app.intent_router import IntentType, classify_intent
 from app.llm_service import LLMChatSession
+from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import load_semantic_layer, get_governance
 from app.semantic_validator import validate_semantic_plan
 from app.sql_compiler import compile_sql_from_semantic_plan
@@ -82,6 +85,35 @@ def main():
                         limit=governance_limits.get("max_rows", 200),
                     )
 
+            chart_status = "Step G/H/I 略過：未配置 DB_HOST/DB_USER/DB_NAME。"
+            if generated_sql and settings.db_host and settings.db_user and settings.db_name:
+                try:
+                    executor = SQLQueryExecutor(
+                        host=settings.db_host,
+                        port=settings.db_port,
+                        user=settings.db_user,
+                        password=settings.db_password or "",
+                        database=settings.db_name,
+                        read_timeout=governance_limits.get("timeout_seconds", 30),
+                    )
+                    result = executor.run(
+                        generated_sql,
+                        max_rows=governance_limits.get("max_rows", 1000),
+                    )
+                    chart_spec = build_chart_spec(result, title="SmartBI SQL Result")
+                    chart_path = render_chart(
+                        result,
+                        chart_spec,
+                        f"{settings.chart_output_dir}/query_chart.png",
+                    )
+                    chart_status = (
+                        f"Step G SQL 執行筆數：{len(result.rows)}\n"
+                        f"Step H 圖表規劃：{chart_spec}\n"
+                        f"Step I 圖表輸出：{chart_path}"
+                    )
+                except Exception as exc:
+                    chart_status = f"Step G/H/I 略過或失敗：{exc}"
+
             print(
                 f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
                 f"Step B 特徵提取結果：{features}\n"
@@ -89,6 +121,7 @@ def main():
                 f"Step D 規劃結果（Deterministic）：{enhanced_plan}\n"
                 f"Step E 規則校驗：{validation}\n"
                 f"Step F SQL 生成結果：\n{generated_sql if generated_sql else '[尚未生成，請先修正校驗錯誤]'}\n"
+                f"{chart_status}\n"
             )
             continue
 
