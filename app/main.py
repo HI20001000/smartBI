@@ -57,6 +57,22 @@ def main():
                 token_hits=token_hits,
                 governance_limits=governance_limits,
             )
+            time_axis = session.resolve_time_axis_with_llm(
+                user_input=user_input,
+                extracted_features=features,
+                selected_dataset_candidates=enhanced_plan.get("selected_dataset_candidates", []) or [],
+            )
+            if time_axis.get("has_time_filter") and not (enhanced_plan.get("selected_filters") or []):
+                enhanced_plan["selected_filters"] = [
+                    {
+                        "field": time_axis.get("time_dimension") or "calendar.biz_date",
+                        "op": "between",
+                        "value": [time_axis.get("start_date", ""), time_axis.get("end_date", "")],
+                        "source": "llm_time_axis",
+                    }
+                ]
+            enhanced_plan["time_axis"] = time_axis
+
             validation = validate_semantic_plan(enhanced_plan, token_hits, governance_limits)
 
             print(
@@ -64,6 +80,7 @@ def main():
                 f"Step B 特徵提取結果：{features}\n"
                 f"Step C Token 命中結果：{token_hits}\n"
                 f"Step D LLM 輔助規劃：{enhanced_plan}\n"
+                f"Step D.5 時間軸解析：{time_axis}\n"
                 f"Step E 規則校驗：{validation}\n"
             )
             continue

@@ -19,6 +19,11 @@ def validate_semantic_plan(
     if require_time_filter and not filters:
         errors.append("查詢需要時間條件（require_time_filter=true），請補充時間範圍。")
 
+    time_axis = enhanced_plan.get("time_axis", {}) or {}
+    if time_axis.get("has_time_filter"):
+        if not time_axis.get("start_date") or not time_axis.get("end_date"):
+            errors.append("時間軸解析不完整，缺少 start_date/end_date。")
+
     selected_metrics = enhanced_plan.get("selected_metrics", []) or []
     selected_dimensions = enhanced_plan.get("selected_dimensions", []) or []
     if not selected_metrics and not selected_dimensions:

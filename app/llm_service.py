@@ -147,3 +147,76 @@ class LLMChatSession:
             "clarification_questions": parsed.get("clarification_questions", []) or [],
             "confidence": float(parsed.get("confidence", 0.0) or 0.0),
         }
+
+    def resolve_time_axis_with_llm(
+        self,
+        user_input: str,
+        extracted_features: dict,
+        selected_dataset_candidates: list[str],
+    ) -> dict:
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SQL 時間軸解析器。"
+                    "你需要把自然語言時間描述轉成固定格式 JSON。"
+                    "若可解析，has_time_filter=true，並填入 start_date/end_date（YYYY-MM-DD）。"
+                    "time_dimension 優先用 biz_date，若語境要求時間戳可用 txn_ts。"
+                    "granularity 僅允許 day/month/quarter/year。"
+                    "relative_type 僅允許 explicit_date_range/relative_days/relative_months/relative_years/calendar_period/none。"
+                    "輸出格式固定為："
+                    '{"has_time_filter":false,"time_dimension":"","start_date":"","end_date":"","granularity":"day","relative_type":"none","source_text":""}'
+                    "不要輸出任何 JSON 以外文字。"
+                )
+            ),
+            HumanMessage(
+                content=json.dumps(
+                    {
+                        "user_input": user_input,
+                        "time_range": extracted_features.get("time_range", ""),
+                        "tokens": extracted_features.get("tokens", []),
+                        "selected_dataset_candidates": selected_dataset_candidates,
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+        except Exception:
+            return {
+                "has_time_filter": False,
+                "time_dimension": "",
+                "start_date": "",
+                "end_date": "",
+                "granularity": "day",
+                "relative_type": "none",
+                "source_text": str(extracted_features.get("time_range", "") or ""),
+            }
+
+        granularity = str(parsed.get("granularity", "day") or "day").lower()
+        if granularity not in {"day", "month", "quarter", "year"}:
+            granularity = "day"
+
+        relative_type = str(parsed.get("relative_type", "none") or "none").lower()
+        if relative_type not in {
+            "explicit_date_range",
+            "relative_days",
+            "relative_months",
+            "relative_years",
+            "calendar_period",
+            "none",
+        }:
+            relative_type = "none"
+
+        return {
+            "has_time_filter": bool(parsed.get("has_time_filter", False)),
+            "time_dimension": str(parsed.get("time_dimension", "") or ""),
+            "start_date": str(parsed.get("start_date", "") or ""),
+            "end_date": str(parsed.get("end_date", "") or ""),
+            "granularity": granularity,
+            "relative_type": relative_type,
+            "source_text": str(parsed.get("source_text", extracted_features.get("time_range", "")) or ""),
+        }
