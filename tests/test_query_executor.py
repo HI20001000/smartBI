@@ -26,3 +26,11 @@ def test_normalize_single_select_sql_accepts_quoted_escaped_newlines():
     sql = '"SELECT\\n  a, b\\nFROM t\\nWHERE id = 1;"'
     normalized = SQLQueryExecutor._normalize_single_select_sql(sql)
     assert normalized == "SELECT\n  a, b\nFROM t\nWHERE id = 1"
+
+
+def test_rewrite_db_error_message_for_missing_cryptography():
+    err = RuntimeError(
+        "'cryptography' package is required for sha256_password or caching_sha2_password auth methods"
+    )
+    rewritten = SQLQueryExecutor._rewrite_db_error_message(err)
+    assert "pip install cryptography" in rewritten

@@ -85,6 +85,19 @@ class SQLQueryExecutor:
     def _is_safe_select(sql: str) -> bool:
         return SQLQueryExecutor._normalize_single_select_sql(sql) is not None
 
+    @staticmethod
+    def _rewrite_db_error_message(exc: Exception) -> str:
+        message = str(exc)
+        lowered = message.lower()
+        if "cryptography" in lowered and (
+            "sha256_password" in lowered or "caching_sha2_password" in lowered
+        ):
+            return (
+                "MySQL authentication requires 'cryptography' for sha256_password/"
+                "caching_sha2_password. Install dependency: pip install cryptography"
+            )
+        return message
+
     def run(self, sql: str, max_rows: int = 1000) -> QueryResult:
         normalized_sql = self._normalize_single_select_sql(sql)
         if not normalized_sql:
@@ -100,22 +113,25 @@ class SQLQueryExecutor:
         if " limit " not in limited_sql.lower():
             limited_sql = f"{limited_sql}\nLIMIT {int(max_rows)}"
 
-        conn = pymysql.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.database,
-            connect_timeout=self.connect_timeout,
-            read_timeout=self.read_timeout,
-            cursorclass=DictCursor,
-            autocommit=True,
-        )
         try:
-            with conn.cursor() as cursor:
-                cursor.execute(limited_sql)
-                rows = cursor.fetchall() or []
-                columns = list(rows[0].keys()) if rows else []
-                return QueryResult(columns=columns, rows=list(rows))
-        finally:
-            conn.close()
+            conn = pymysql.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.database,
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+                cursorclass=DictCursor,
+                autocommit=True,
+            )
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(limited_sql)
+                    rows = cursor.fetchall() or []
+                    columns = list(rows[0].keys()) if rows else []
+                    return QueryResult(columns=columns, rows=list(rows))
+            finally:
+                conn.close()
+        except Exception as exc:
+            raise RuntimeError(self._rewrite_db_error_message(exc)) from exc
