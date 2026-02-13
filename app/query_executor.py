@@ -32,8 +32,33 @@ class SQLQueryExecutor:
         self.read_timeout = int(read_timeout)
 
     @staticmethod
+    def _unwrap_common_llm_wrappers(sql: str) -> str:
+        text = (sql or "").strip()
+        if not text:
+            return ""
+
+        # markdown code fences: ```sql ... ``` or ``` ... ```
+        if text.startswith("```") and text.endswith("```"):
+            lines = text.splitlines()
+            if len(lines) >= 2:
+                lines = lines[1:-1]
+                if lines and lines[0].strip().lower() == "sql":
+                    lines = lines[1:]
+                text = "\n".join(lines).strip()
+
+        # quoted string payload from upstream JSON / logging wrappers
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("\"", "'"):
+            text = text[1:-1].strip()
+
+        # handle escaped newlines often produced by model/json formatting
+        if "\\n" in text:
+            text = text.replace("\\n", "\n")
+
+        return text
+
+    @staticmethod
     def _normalize_single_select_sql(sql: str) -> str | None:
-        normalized = (sql or "").strip()
+        normalized = SQLQueryExecutor._unwrap_common_llm_wrappers(sql)
         if not normalized:
             return None
 
@@ -60,6 +85,19 @@ class SQLQueryExecutor:
     def _is_safe_select(sql: str) -> bool:
         return SQLQueryExecutor._normalize_single_select_sql(sql) is not None
 
+    @staticmethod
+    def _rewrite_db_error_message(exc: Exception) -> str:
+        message = str(exc)
+        lowered = message.lower()
+        if "cryptography" in lowered and (
+            "sha256_password" in lowered or "caching_sha2_password" in lowered
+        ):
+            return (
+                "MySQL authentication requires 'cryptography' for sha256_password/"
+                "caching_sha2_password. Install dependency: pip install cryptography"
+            )
+        return message
+
     def run(self, sql: str, max_rows: int = 1000) -> QueryResult:
         normalized_sql = self._normalize_single_select_sql(sql)
         if not normalized_sql:
@@ -75,22 +113,25 @@ class SQLQueryExecutor:
         if " limit " not in limited_sql.lower():
             limited_sql = f"{limited_sql}\nLIMIT {int(max_rows)}"
 
-        conn = pymysql.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.database,
-            connect_timeout=self.connect_timeout,
-            read_timeout=self.read_timeout,
-            cursorclass=DictCursor,
-            autocommit=True,
-        )
         try:
-            with conn.cursor() as cursor:
-                cursor.execute(limited_sql)
-                rows = cursor.fetchall() or []
-                columns = list(rows[0].keys()) if rows else []
-                return QueryResult(columns=columns, rows=list(rows))
-        finally:
-            conn.close()
+            conn = pymysql.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.database,
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+                cursorclass=DictCursor,
+                autocommit=True,
+            )
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(limited_sql)
+                    rows = cursor.fetchall() or []
+                    columns = list(rows[0].keys()) if rows else []
+                    return QueryResult(columns=columns, rows=list(rows))
+            finally:
+                conn.close()
+        except Exception as exc:
+            raise RuntimeError(self._rewrite_db_error_message(exc)) from exc

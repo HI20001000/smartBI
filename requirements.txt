@@ -3,4 +3,5 @@ langchain-core
 langchain-openai
 python-dotenv
 pymysql
+cryptography
 matplotlib

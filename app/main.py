@@ -11,6 +11,7 @@ from app.llm_service import LLMChatSession
 from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import load_semantic_layer, get_governance
 from app.semantic_validator import validate_semantic_plan
+from app.sql_guard import has_metric_name_column_reference
 from app.sql_compiler import compile_sql_from_semantic_plan
 from app.sql_planner import build_semantic_plan
 from app.token_matcher import SemanticTokenMatcher
@@ -70,20 +71,29 @@ def main():
 
             generated_sql = ""
             if validation.get("ok"):
-                try:
-                    generated_sql = session.generate_sql_from_json_plan_with_llm(
-                        user_input=user_input,
-                        json_plan=enhanced_plan,
-                        semantic_layer=semantic_layer,
-                    )
-                    if not generated_sql or "select *" in generated_sql.lower():
-                        raise ValueError("LLM SQL invalid")
-                except Exception:
-                    generated_sql = compile_sql_from_semantic_plan(
-                        enhanced_plan=enhanced_plan,
-                        semantic_layer=semantic_layer,
-                        limit=governance_limits.get("max_rows", 200),
-                    )
+                generated_sql = compile_sql_from_semantic_plan(
+                    enhanced_plan=enhanced_plan,
+                    semantic_layer=semantic_layer,
+                    limit=governance_limits.get("max_rows", 200),
+                )
+
+                if settings.sql_generation_mode == "llm":
+                    try:
+                        llm_sql = session.generate_sql_from_json_plan_with_llm(
+                            user_input=user_input,
+                            json_plan=enhanced_plan,
+                            semantic_layer=semantic_layer,
+                        )
+                        if not llm_sql or "select *" in llm_sql.lower():
+                            raise ValueError("LLM SQL invalid")
+                        if has_metric_name_column_reference(
+                            llm_sql,
+                            enhanced_plan.get("selected_metrics", []) or [],
+                        ):
+                            raise ValueError("LLM SQL references logical metric names as physical columns")
+                        generated_sql = llm_sql
+                    except Exception:
+                        pass
 
             missing_db_fields = [
                 name

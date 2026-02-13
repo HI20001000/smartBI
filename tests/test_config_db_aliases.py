@@ -22,3 +22,13 @@ def test_settings_load_supports_mysql_env_aliases(monkeypatch):
     assert settings.db_user == "root"
     assert settings.db_password == "secret"
     assert settings.db_name == "smartbi_data"
+    assert settings.sql_generation_mode == "deterministic"
+
+
+def test_settings_load_accepts_sql_generation_mode_llm(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("LLM_MODEL", "demo-model")
+    monkeypatch.setenv("SQL_GENERATION_MODE", "llm")
+
+    settings = Settings.load()
+    assert settings.sql_generation_mode == "llm"

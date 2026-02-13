@@ -38,6 +38,7 @@ class Settings:
     db_password: str | None = None
     db_name: str | None = None
     chart_output_dir: str = "artifacts/charts"
+    sql_generation_mode: str = "deterministic"
 
     @staticmethod
     def load() -> "Settings":
@@ -58,6 +59,10 @@ class Settings:
         max_tokens_raw = _get("LLM_MAX_TOKENS", None)
         max_tokens = int(max_tokens_raw) if max_tokens_raw else None
 
+        sql_generation_mode = (_get("SQL_GENERATION_MODE", "deterministic") or "deterministic").strip().lower()
+        if sql_generation_mode not in {"deterministic", "llm"}:
+            sql_generation_mode = "deterministic"
+
         return Settings(
             llm_base_url=base_url,
             llm_model=model,
@@ -70,4 +75,5 @@ class Settings:
             db_password=_get_first(["DB_PASSWORD", "MYSQL_PASSWORD"]),
             db_name=_get_first(["DB_NAME", "MYSQL_DATABASE"]),
             chart_output_dir=_get("CHART_OUTPUT_DIR", "artifacts/charts") or "artifacts/charts",
+            sql_generation_mode=sql_generation_mode,
         )
