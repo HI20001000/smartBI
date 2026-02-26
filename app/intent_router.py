@@ -48,7 +48,15 @@ def classify_intent(user_input: str, session: LLMChatSession) -> IntentResult:
     if local_result:
         return local_result
 
-    raw = session.classify_intent_with_llm(user_input)
+    try:
+        raw = session.classify_intent_with_llm(user_input)
+    except Exception as exc:
+        return IntentResult(
+            intent=IntentType.CHAT,
+            confidence=0.2,
+            reason=f"LLM intent classification unavailable: {exc}",
+        )
+
     try:
         parsed = json.loads(raw)
         intent = IntentType(parsed.get("intent", "CHAT").upper())
