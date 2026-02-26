@@ -553,18 +553,21 @@ def merge_llm_selection_into_plan(
     extracted_features: dict[str, Any],
     semantic_layer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Deterministically assemble semantic plan from Step C candidates."""
+    """Merge optional LLM semantic selection with deterministic Step C candidates."""
     matches = token_hits.get("matches", []) or []
     metric_candidates = _canonical_candidates(matches, "metric")
     dimension_candidates = _dimension_candidates(matches)
     dataset_candidates = _dataset_candidates(matches)
 
-    # Step D (LLM semantic selection) removed; keep parameter for backward compatibility.
-    _ = llm_selection
-
-    selected_metrics = metric_candidates
-    selected_dimensions = dimension_candidates
-    selected_datasets = dataset_candidates
+    selected_metrics = _safe_selected_values(metric_candidates, llm_selection.get("selected_metrics", []) or [])
+    selected_dimensions = _safe_selected_values(
+        dimension_candidates,
+        llm_selection.get("selected_dimensions", []) or [],
+    )
+    selected_datasets = _safe_selected_values(
+        dataset_candidates,
+        llm_selection.get("selected_dataset_candidates", []) or [],
+    )
 
     # fallback: if LLM did not select, use deterministic candidate order from Step C
     if not selected_metrics:
