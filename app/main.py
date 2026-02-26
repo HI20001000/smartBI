@@ -327,12 +327,14 @@ def main():
             return
 
         if intent_result.intent == IntentType.SQL:
-            features = session.extract_sql_features_with_llm(user_input)
+            normalize_trace = session.normalize_sql_user_input_with_llm(user_input)
+            normalized_user_input = str(normalize_trace.get("normalized_input", user_input) or user_input).strip() or user_input
+            features = session.extract_sql_features_with_llm(normalized_user_input)
             print(f"\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。")
 
             token_hits = matcher.match(features)
             llm_selection = session.enhance_semantic_selection_with_llm(
-                user_input=user_input,
+                user_input=normalized_user_input,
                 extracted_features=features,
                 token_hits=token_hits,
             )
@@ -373,7 +375,7 @@ def main():
                     }
                 except Exception as compile_exc:
                     generated_sql, step_f_trace = session.generate_sql_with_langchain(
-                        user_input=user_input,
+                        user_input=normalized_user_input,
                         enhanced_plan=enhanced_plan,
                         semantic_layer=semantic_layer,
                         return_trace=True,
@@ -394,7 +396,7 @@ def main():
             summary_status = "Step J 數據摘要：略過（尚無可用結果）"
             if not validation.get("ok"):
                 failure_message = "; ".join(validation.get("errors", []) or []) or "規則校驗失敗"
-                summary_text = session.summarize_failure_with_llm(user_input, failure_message)
+                summary_text = session.summarize_failure_with_llm(normalized_user_input, failure_message)
                 summary_status = _dark_log_block(f"Step J 數據摘要（錯誤修飾）：\n{summary_text}")
                 chart_status = "Step G/H/I 略過：因 Step E 規則校驗失敗，停止後續步驟。"
             elif generated_sql and not missing_db_fields:
@@ -430,7 +432,7 @@ def main():
                     )
                     zero_rows_notice = "[提醒] 查詢結果為 0 筆，當前條件下沒有可用數據。" if len(result.rows) == 0 else ""
                     try:
-                        summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
+                        summary_text = session.summarize_query_result_with_llm(normalized_user_input, result.rows, max_rows=20)
                         summary_body = f"{zero_rows_notice}\n{summary_text}" if zero_rows_notice else summary_text
                         summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_body}")
                     except Exception as summary_exc:
@@ -441,7 +443,7 @@ def main():
                 except Exception as exc:
                     failure_message = str(exc) or "Step G/H/I 執行失敗"
                     chart_status = f"Step G/H/I 略過或失敗：{failure_message}"
-                    summary_text = session.summarize_failure_with_llm(user_input, failure_message)
+                    summary_text = session.summarize_failure_with_llm(normalized_user_input, failure_message)
                     summary_status = _dark_log_block(f"Step J 數據摘要（錯誤修飾）：\n{summary_text}")
 
             metrics_payload = {
@@ -464,6 +466,7 @@ def main():
             }
             print(
                 "\n"
+                f"Step A.5 查詢修正：\n{_pretty(normalize_trace)}\n"
                 f"Step B 特徵提取結果：\n{_pretty(features)}\n"
                 f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
                 f"Step C.4 Embedding/Rerank 結果：\n{_pretty(rerank_trace)}\n"

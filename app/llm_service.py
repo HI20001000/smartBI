@@ -50,6 +50,39 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
+    def normalize_sql_user_input_with_llm(self, user_input: str) -> dict:
+        normalized_input = (user_input or "").strip()
+        if not normalized_input:
+            return {"normalized_input": "", "changed": False}
+
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SmartBI 查詢語句修正器。"
+                    "請將使用者查詢中的明顯錯字、全半形、大小寫、空白與常見中英混用詞彙修正成更標準的查詢文字。"
+                    "不要改變原始意圖，不要新增未提及的條件。"
+                    "只輸出 JSON，格式固定為："
+                    '{"normalized_input":"..."}'
+                )
+            ),
+            HumanMessage(content=f"user_input={normalized_input}"),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+            candidate = str(parsed.get("normalized_input", "") or "").strip()
+            if candidate:
+                normalized_input = candidate
+        except Exception:
+            pass
+
+        return {
+            "normalized_input": normalized_input,
+            "changed": normalized_input != (user_input or "").strip(),
+        }
+
     def extract_sql_features_with_llm(self, user_input: str) -> dict:
         prompt = [
             SystemMessage(
