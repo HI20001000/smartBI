@@ -101,5 +101,24 @@ class LLMServiceTests(unittest.TestCase):
         self.assertEqual(features["dimensions"], ["姓名", "電子信箱", "聯絡方式"])
 
 
+    def test_extract_sql_features_backfills_customer_filter_from_query_text(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient('{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":""}')
+
+        features = session.extract_sql_features_with_llm("pls check client 10001 name and mail and contact")
+
+        self.assertEqual(features["filters"], ["客戶=10001"])
+
+
+    def test_extract_sql_features_backfills_phone_and_email_dimensions(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient('{"tokens":[],"metrics":[],"dimensions":[],"filters":["客戶=10001"],"time_start":"","time_end":""}')
+
+        features = session.extract_sql_features_with_llm("查找客戶10001的電話與郵件")
+
+        self.assertEqual(features["dimensions"], ["電子信箱", "電話"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
