@@ -460,6 +460,7 @@ def main():
                 "\n"
                 f"Step B 特徵提取結果：\n{_pretty(features)}\n"
                 f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
+                f"Step C.4 Embedding/Rerank 結果：\n{_pretty({{'semantic_query': token_hits.get('semantic_query', ''), 'embedding_hits': token_hits.get('embedding_hits', []), 'reranked_hits': token_hits.get('reranked_hits', []), 'thresholded_hits': token_hits.get('thresholded_hits', [])}})}\n"
                 f"Step C.5 LLM 增強補全：\n{_pretty(llm_selection)}\n"
                 f"Step D 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
                 f"Step E 規則校驗：\n{_pretty(validation)}\n"
