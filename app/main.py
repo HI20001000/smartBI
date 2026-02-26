@@ -16,7 +16,6 @@ from app.llm_service import LLMChatSession
 from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import get_governance, load_semantic_layer
 from app.semantic_validator import validate_semantic_plan
-from app.sql_compiler import compile_sql_from_semantic_plan
 from app.sql_planner import merge_llm_selection_into_plan
 from app.token_matcher import SemanticTokenMatcher
 
@@ -348,7 +347,8 @@ def main():
             generated_sql = ""
             compile_start = time.perf_counter()
             if validation.get("ok"):
-                generated_sql = compile_sql_from_semantic_plan(
+                generated_sql = session.generate_sql_with_langchain(
+                    user_input=user_input,
                     enhanced_plan=enhanced_plan,
                     semantic_layer=semantic_layer,
                 )
