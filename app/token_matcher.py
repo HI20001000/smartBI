@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -292,10 +293,20 @@ class SemanticTokenMatcher:
 
         if normalized_query_text:
             for entry in self.entries:
-                if any(alias and alias in normalized_query_text for alias in entry.aliases):
+                if any(self._alias_present_in_text(alias, normalized_query_text) for alias in entry.aliases):
                     _append_entry(entry)
 
         return matches, blocked
+
+    @staticmethod
+    def _alias_present_in_text(alias: str, normalized_query_text: str) -> bool:
+        if not alias:
+            return False
+
+        if len(alias) == 1 and alias.isascii() and alias.isalnum():
+            return bool(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized_query_text))
+
+        return alias in normalized_query_text
 
     def _semantic_retrieve(self, query: str, top_k: int = 8) -> list[dict[str, Any]]:
         if not query or not self.embedding_client or not self._semantic_docs:

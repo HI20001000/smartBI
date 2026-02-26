@@ -16,7 +16,6 @@ from app.llm_service import LLMChatSession
 from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import get_governance, load_semantic_layer
 from app.semantic_validator import validate_semantic_plan
-from app.sql_compiler import compile_sql_from_semantic_plan
 from app.sql_planner import merge_llm_selection_into_plan
 from app.token_matcher import SemanticTokenMatcher
 
@@ -346,11 +345,14 @@ def main():
             )
 
             generated_sql = ""
+            step_f_trace: dict = {}
             compile_start = time.perf_counter()
             if validation.get("ok"):
-                generated_sql = compile_sql_from_semantic_plan(
+                generated_sql, step_f_trace = session.generate_sql_with_langchain(
+                    user_input=user_input,
                     enhanced_plan=enhanced_plan,
                     semantic_layer=semantic_layer,
+                    return_trace=True,
                 )
             compile_ms = round((time.perf_counter() - compile_start) * 1000, 2)
 
@@ -428,12 +430,14 @@ def main():
             }
 
             sql_text = generated_sql if generated_sql else "[尚未生成，請先修正校驗錯誤]"
+            step_f_trace_text = _pretty(step_f_trace) if step_f_trace else "[無可用調用資訊]"
             print(
                 "\n"
                 f"Step B 特徵提取結果：\n{_pretty(features)}\n"
                 f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
                 f"Step D 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
                 f"Step E 規則校驗：\n{_pretty(validation)}\n"
+                f"Step F LangChain 調用過程：\n{step_f_trace_text}\n"
                 f"Step F SQL 生成結果：\n{sql_text}\n"
                 f"Observability Metrics：\n{_pretty(metrics_payload)}\n"
                 f"{chart_status}\n"
