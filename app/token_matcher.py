@@ -513,10 +513,10 @@ class SemanticTokenMatcher:
 
         embedding_hits = self._semantic_retrieve(semantic_query, top_k=8)
         reranked_hits = self._rerank(semantic_query, embedding_hits, top_k=8)
-        reranked_hits = self._filter_by_rerank_threshold(reranked_hits)
+        thresholded_hits = self._filter_by_rerank_threshold(reranked_hits)
 
-        retrieved_allowed = [item for item in reranked_hits if item.get("allowed") is not False]
-        retrieved_blocked = [item for item in reranked_hits if item.get("allowed") is False]
+        retrieved_allowed = [item for item in thresholded_hits if item.get("allowed") is not False]
+        retrieved_blocked = [item for item in thresholded_hits if item.get("allowed") is False]
         blocked = self._merge_matches(blocked, retrieved_blocked)
 
         matches = self._merge_matches(exact_matches, retrieved_allowed)
@@ -524,6 +524,10 @@ class SemanticTokenMatcher:
             "tokens": extracted_features.get("tokens", []) or [],
             "time_start": extracted_features.get("time_start", ""),
             "time_end": extracted_features.get("time_end", ""),
+            "semantic_query": semantic_query,
+            "embedding_hits": embedding_hits,
+            "reranked_hits": reranked_hits,
+            "thresholded_hits": thresholded_hits,
             "matches": matches,
             "blocked_matches": blocked,
         }

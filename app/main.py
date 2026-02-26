@@ -16,6 +16,7 @@ from app.llm_service import LLMChatSession
 from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import get_governance, load_semantic_layer
 from app.semantic_validator import validate_semantic_plan
+from app.sql_compiler import compile_sql_from_semantic_plan
 from app.sql_planner import merge_llm_selection_into_plan
 from app.token_matcher import SemanticTokenMatcher
 
@@ -330,8 +331,13 @@ def main():
             print(f"\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。")
 
             token_hits = matcher.match(features)
+            llm_selection = session.enhance_semantic_selection_with_llm(
+                user_input=user_input,
+                extracted_features=features,
+                token_hits=token_hits,
+            )
             enhanced_plan = merge_llm_selection_into_plan(
-                llm_selection={},
+                llm_selection=llm_selection,
                 token_hits=token_hits,
                 extracted_features=features,
                 semantic_layer=semantic_layer,
@@ -348,12 +354,31 @@ def main():
             step_f_trace: dict = {}
             compile_start = time.perf_counter()
             if validation.get("ok"):
-                generated_sql, step_f_trace = session.generate_sql_with_langchain(
-                    user_input=user_input,
-                    enhanced_plan=enhanced_plan,
-                    semantic_layer=semantic_layer,
-                    return_trace=True,
-                )
+                try:
+                    generated_sql = compile_sql_from_semantic_plan(enhanced_plan, semantic_layer)
+                    step_f_trace = {
+                        "generator": "deterministic.compile_sql_from_semantic_plan",
+                        "selected_dataset": (enhanced_plan.get("selected_dataset_candidates", [""]) or [""])[0],
+                        "attempts": [
+                            {
+                                "attempt": 1,
+                                "raw_response": generated_sql,
+                                "normalized_sql": generated_sql,
+                                "ok": True,
+                                "error": "",
+                            }
+                        ],
+                        "attempt_count": 1,
+                        "final_sql": generated_sql,
+                    }
+                except Exception as compile_exc:
+                    generated_sql, step_f_trace = session.generate_sql_with_langchain(
+                        user_input=user_input,
+                        enhanced_plan=enhanced_plan,
+                        semantic_layer=semantic_layer,
+                        return_trace=True,
+                    )
+                    step_f_trace["deterministic_fallback_error"] = str(compile_exc)
             compile_ms = round((time.perf_counter() - compile_start) * 1000, 2)
 
             missing_db_fields = [
@@ -435,6 +460,8 @@ def main():
                 "\n"
                 f"Step B 特徵提取結果：\n{_pretty(features)}\n"
                 f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
+                f"Step C.4 Embedding/Rerank 結果：\n{_pretty({{'semantic_query': token_hits.get('semantic_query', ''), 'embedding_hits': token_hits.get('embedding_hits', []), 'reranked_hits': token_hits.get('reranked_hits', []), 'thresholded_hits': token_hits.get('thresholded_hits', [])}})}\n"
+                f"Step C.5 LLM 增強補全：\n{_pretty(llm_selection)}\n"
                 f"Step D 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
                 f"Step E 規則校驗：\n{_pretty(validation)}\n"
                 f"Step F LangChain 調用過程：\n{step_f_trace_text}\n"
