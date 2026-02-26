@@ -1,4 +1,5 @@
 import json
+import re
 from decimal import Decimal
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -9,6 +10,13 @@ from app.query_executor import SQLQueryExecutor
 
 
 class LLMChatSession:
+    _DIMENSION_HINT_PATTERNS: tuple[tuple[str, str], ...] = (
+        (r"姓名", "姓名"),
+        (r"電子(?:信箱|郵件)", "電子信箱"),
+        (r"(?:聯絡方式|聯絡資料|聯繫方式)", "聯絡方式"),
+        (r"\b(?:email|e-mail)\b", "電子信箱"),
+    )
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.client = ChatOpenAI(
@@ -170,10 +178,20 @@ class LLMChatSession:
                 return value
             return ""
 
+        tokens = _string_list(parsed.get("tokens"))
+        metrics = _string_list(parsed.get("metrics"))
+        dimensions = _string_list(parsed.get("dimensions"))
+
+        if not dimensions:
+            lowered_input = (user_input or "").strip().lower()
+            for pattern, normalized in self._DIMENSION_HINT_PATTERNS:
+                if re.search(pattern, lowered_input, flags=re.IGNORECASE) and normalized not in dimensions:
+                    dimensions.append(normalized)
+
         return {
-            "tokens": _string_list(parsed.get("tokens")),
-            "metrics": _string_list(parsed.get("metrics")),
-            "dimensions": _string_list(parsed.get("dimensions")),
+            "tokens": tokens,
+            "metrics": metrics,
+            "dimensions": dimensions,
             "filters": _string_list(parsed.get("filters")),
             "time_start": _date_or_empty(parsed.get("time_start")),
             "time_end": _date_or_empty(parsed.get("time_end")),
