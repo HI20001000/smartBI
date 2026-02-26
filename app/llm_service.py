@@ -50,6 +50,39 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
+    def normalize_sql_user_input_with_llm(self, user_input: str) -> dict:
+        normalized_input = (user_input or "").strip()
+        if not normalized_input:
+            return {"normalized_input": "", "changed": False}
+
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SmartBI 查詢語句修正器。"
+                    "請將使用者查詢中的明顯錯字、全半形、大小寫、空白與常見中英混用詞彙修正成更標準的查詢文字。"
+                    "不要改變原始意圖，不要新增未提及的條件。"
+                    "只輸出 JSON，格式固定為："
+                    '{"normalized_input":"..."}'
+                )
+            ),
+            HumanMessage(content=f"user_input={normalized_input}"),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+            candidate = str(parsed.get("normalized_input", "") or "").strip()
+            if candidate:
+                normalized_input = candidate
+        except Exception:
+            pass
+
+        return {
+            "normalized_input": normalized_input,
+            "changed": normalized_input != (user_input or "").strip(),
+        }
+
     def extract_sql_features_with_llm(self, user_input: str) -> dict:
         prompt = [
             SystemMessage(
@@ -284,6 +317,61 @@ class LLMChatSession:
         if return_trace:
             return sql, trace
         return sql
+
+    def enhance_semantic_selection_with_llm(
+        self,
+        user_input: str,
+        extracted_features: dict,
+        token_hits: dict,
+    ) -> dict:
+        matches = token_hits.get("matches", []) or []
+        blocked = token_hits.get("blocked_matches", []) or []
+        candidates = (matches + blocked)[:20]
+        if not candidates:
+            return {}
+
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SmartBI 語意欄位選擇器。"
+                    "請根據使用者問題、Step B 特徵與 Step C 候選，補全應選的 metrics/dimensions/datasets。"
+                    "只能從 candidate 中挑選 canonical_name；不得臆造。"
+                    "僅輸出 JSON："
+                    '{"selected_metrics":[],"selected_dimensions":[],"selected_dataset_candidates":[]}'
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"user_input={user_input}\n"
+                    f"features_json={json.dumps(extracted_features, ensure_ascii=False)}\n"
+                    f"candidates_json={json.dumps(candidates, ensure_ascii=False)}\n"
+                    "規則：\n"
+                    "1) 指標放 selected_metrics，維度/欄位放 selected_dimensions。\n"
+                    "2) 若使用者明確要求多個欄位（例如 姓名與電子郵件），可同時選多個 dimensions。\n"
+                    "3) dataset 優先選可支援最多 selected_metrics+selected_dimensions 的資料集。\n"
+                    "4) 若無把握，保持陣列為空。\n"
+                    "只回傳 JSON。"
+                )
+            ),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+        except Exception:
+            return {}
+
+        def _string_list(value: object) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [v.strip() for v in value if isinstance(v, str) and v.strip()]
+
+        return {
+            "selected_metrics": _string_list(parsed.get("selected_metrics")),
+            "selected_dimensions": _string_list(parsed.get("selected_dimensions")),
+            "selected_dataset_candidates": _string_list(parsed.get("selected_dataset_candidates")),
+        }
 
     def summarize_query_result_with_llm(self, user_input: str, rows: list[dict], max_rows: int = 20) -> str:
         sample_rows = rows[: max(1, int(max_rows))]
