@@ -152,6 +152,7 @@ semantic_layer:
           expr: core_customer.phone
           classification: PII
           allowed: false
+          synonyms: [電話, 手機, 手機號碼, 聯絡電話, phone, tel]
         - name: email
           expr: core_customer.email
           classification: PII
