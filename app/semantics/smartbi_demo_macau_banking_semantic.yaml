@@ -156,6 +156,7 @@ semantic_layer:
           expr: core_customer.email
           classification: PII
           allowed: false
+          synonyms: [電子郵件, 電郵, 郵箱, 郵件, email, e-mail]
         - name: birth_date
           expr: core_customer.birth_date
           classification: SENSITIVE
