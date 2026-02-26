@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 
 from app.config import Settings
+from app.query_executor import SQLQueryExecutor
 
 
 class LLMChatSession:
@@ -210,30 +211,75 @@ class LLMChatSession:
             "僅回傳 SQL 本文。"
         )
 
-        prompt = [
-            SystemMessage(
-                content=system_prompt
-            ),
-            HumanMessage(
-                content=human_prompt
-            ),
-        ]
+        attempts: list[dict] = []
+        sql = ""
+        max_attempts = 3
+        for idx in range(1, max_attempts + 1):
+            retry_hint = ""
+            if attempts:
+                last = attempts[-1]
+                retry_hint = (
+                    "\n上一輪生成未通過，請僅回傳單條可執行 SELECT SQL。"
+                    f"\n上一輪錯誤：{last.get('error', 'UNKNOWN')}"
+                    f"\n上一輪輸出：{last.get('raw_response', '')}"
+                )
 
-        resp = self.client.invoke(prompt)
-        raw = getattr(resp, "content", str(resp)).strip()
-        sql = self._extract_sql_text(raw)
+            prompt = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=human_prompt + retry_hint),
+            ]
+
+            try:
+                resp = self.client.invoke(prompt)
+                raw = getattr(resp, "content", str(resp)).strip()
+            except Exception as exc:
+                attempts.append(
+                    {
+                        "attempt": idx,
+                        "raw_response": "",
+                        "normalized_sql": "",
+                        "ok": False,
+                        "error": str(exc) or "LLM_INVOKE_FAILED",
+                    }
+                )
+                continue
+
+            normalized = self._extract_sql_text(raw)
+            safe_sql = SQLQueryExecutor._normalize_single_select_sql(normalized)
+            if not safe_sql:
+                attempts.append(
+                    {
+                        "attempt": idx,
+                        "raw_response": raw,
+                        "normalized_sql": normalized,
+                        "ok": False,
+                        "error": "INVALID_SQL_SHAPE",
+                    }
+                )
+                continue
+
+            sql = safe_sql
+            attempts.append(
+                {
+                    "attempt": idx,
+                    "raw_response": raw,
+                    "normalized_sql": safe_sql,
+                    "ok": True,
+                    "error": "",
+                }
+            )
+            break
+
         if not sql:
-            raise ValueError("LLM did not return SQL text.")
+            raise ValueError("LLM did not return valid single SELECT SQL.")
+
         trace = {
             "generator": "langchain.ChatOpenAI.invoke",
             "model": self.settings.llm_model,
             "selected_dataset": selected_dataset,
-            "prompt": {
-                "system": system_prompt,
-                "human": human_prompt,
-            },
-            "raw_response": raw,
-            "normalized_sql": sql,
+            "attempts": attempts,
+            "attempt_count": len(attempts),
+            "final_sql": sql,
         }
         if return_trace:
             return sql, trace
