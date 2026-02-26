@@ -91,6 +91,34 @@ class LLMServiceTests(unittest.TestCase):
                 semantic_layer={"datasets": {"sales": {"from": "fact_sales"}}, "entities": {}},
             )
 
+    def test_extract_sql_features_backfills_dimensions_when_llm_misses_customer_fields(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient('{"tokens":[],"metrics":[],"dimensions":[],"filters":["客戶=10001"],"time_start":"","time_end":""}')
+
+        features = session.extract_sql_features_with_llm("請查詢客戶 10001 的姓名、電子信箱與聯絡方式")
+
+        self.assertEqual(features["filters"], ["客戶=10001"])
+        self.assertEqual(features["dimensions"], ["姓名", "電子信箱", "聯絡方式"])
+
+
+    def test_extract_sql_features_backfills_customer_filter_from_query_text(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient('{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":""}')
+
+        features = session.extract_sql_features_with_llm("pls check client 10001 name and mail and contact")
+
+        self.assertEqual(features["filters"], ["客戶=10001"])
+
+
+    def test_extract_sql_features_backfills_phone_and_email_dimensions(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient('{"tokens":[],"metrics":[],"dimensions":[],"filters":["客戶=10001"],"time_start":"","time_end":""}')
+
+        features = session.extract_sql_features_with_llm("查找客戶10001的電話與郵件")
+
+        self.assertEqual(features["dimensions"], ["電子信箱", "電話"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

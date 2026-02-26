@@ -1,4 +1,5 @@
 import json
+import re
 from decimal import Decimal
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -9,6 +10,19 @@ from app.query_executor import SQLQueryExecutor
 
 
 class LLMChatSession:
+    _DIMENSION_HINT_PATTERNS: tuple[tuple[str, str], ...] = (
+        (r"姓名", "姓名"),
+        (r"電子(?:信箱|郵件)", "電子信箱"),
+        (r"(?:郵件|郵箱|電郵|mail)", "電子信箱"),
+        (r"(?:電話|手機|聯絡電話|phone|tel)", "電話"),
+        (r"(?:聯絡方式|聯絡資料|聯繫方式)", "聯絡方式"),
+        (r"\b(?:email|e-mail)\b", "電子信箱"),
+    )
+    _CUSTOMER_FILTER_PATTERNS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"(?:客戶|客户|客戶id|客戶ID|customer|client)\s*[:=]\s*([A-Za-z0-9_-]+)", flags=re.IGNORECASE),
+        re.compile(r"(?:客戶|客户|客戶id|客戶ID|customer|client)\s+([A-Za-z0-9_-]+)", flags=re.IGNORECASE),
+    )
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.client = ChatOpenAI(
@@ -170,11 +184,32 @@ class LLMChatSession:
                 return value
             return ""
 
+        tokens = _string_list(parsed.get("tokens"))
+        metrics = _string_list(parsed.get("metrics"))
+        dimensions = _string_list(parsed.get("dimensions"))
+        filters = _string_list(parsed.get("filters"))
+
+        normalized_input = (user_input or "").strip()
+        if not dimensions:
+            for pattern, normalized in self._DIMENSION_HINT_PATTERNS:
+                if re.search(pattern, normalized_input, flags=re.IGNORECASE) and normalized not in dimensions:
+                    dimensions.append(normalized)
+
+        if not filters:
+            for pattern in self._CUSTOMER_FILTER_PATTERNS:
+                m = pattern.search(normalized_input)
+                if not m:
+                    continue
+                customer_value = (m.group(1) or "").strip()
+                if customer_value:
+                    filters.append(f"客戶={customer_value}")
+                    break
+
         return {
-            "tokens": _string_list(parsed.get("tokens")),
-            "metrics": _string_list(parsed.get("metrics")),
-            "dimensions": _string_list(parsed.get("dimensions")),
-            "filters": _string_list(parsed.get("filters")),
+            "tokens": tokens,
+            "metrics": metrics,
+            "dimensions": dimensions,
+            "filters": filters,
             "time_start": _date_or_empty(parsed.get("time_start")),
             "time_end": _date_or_empty(parsed.get("time_end")),
             "query_text": user_input.strip(),

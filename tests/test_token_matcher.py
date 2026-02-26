@@ -39,6 +39,23 @@ class TokenMatcherTests(unittest.TestCase):
         blocked_names = {item.get("canonical_name") for item in token_hits.get("blocked_matches", [])}
         self.assertIn("customer.id_no", blocked_names)
 
+    def test_match_can_detect_blocked_phone_field_from_raw_query_text(self):
+        matcher = SemanticTokenMatcher("app/semantics/smartbi_demo_macau_banking_semantic.yaml")
+        features = {
+            "tokens": [],
+            "metrics": [],
+            "dimensions": [],
+            "filters": [],
+            "time_start": "",
+            "time_end": "",
+            "query_text": "查找客戶10001的電話與郵件",
+        }
+
+        token_hits = matcher.match(features)
+
+        blocked_names = {item.get("canonical_name") for item in token_hits.get("blocked_matches", [])}
+        self.assertIn("customer.phone", blocked_names)
+
     def test_match_treats_string_false_sensitive_allowed_as_blocked(self):
         semantic_yaml = """
 version: 1
