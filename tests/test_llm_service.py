@@ -24,6 +24,7 @@ class LLMServiceTests(unittest.TestCase):
     def test_generate_sql_with_langchain_uses_model_output(self):
         session = object.__new__(LLMChatSession)
         session.client = _FakeClient("SQL: SELECT 1")
+        session.settings = type("S", (), {"llm_model": "test-model"})()
 
         sql = session.generate_sql_with_langchain(
             user_input="test",
@@ -37,6 +38,29 @@ class LLMServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(sql, "SELECT 1")
+
+    def test_generate_sql_with_langchain_can_return_trace(self):
+        session = object.__new__(LLMChatSession)
+        session.client = _FakeClient("```sql\nSELECT 2\n```")
+        session.settings = type("S", (), {"llm_model": "trace-model"})()
+
+        sql, trace = session.generate_sql_with_langchain(
+            user_input="test trace",
+            enhanced_plan={
+                "selected_dataset_candidates": ["sales"],
+                "selected_metrics": ["sales.revenue"],
+                "selected_dimensions": ["sales.biz_date"],
+                "selected_filters": [],
+            },
+            semantic_layer={"datasets": {"sales": {"from": "fact_sales"}}, "entities": {}},
+            return_trace=True,
+        )
+
+        self.assertEqual(sql, "SELECT 2")
+        self.assertEqual(trace["generator"], "langchain.ChatOpenAI.invoke")
+        self.assertEqual(trace["model"], "trace-model")
+        self.assertEqual(trace["selected_dataset"], "sales")
+        self.assertEqual(trace["normalized_sql"], "SELECT 2")
 
 
 if __name__ == "__main__":
