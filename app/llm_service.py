@@ -146,6 +146,99 @@ class LLMChatSession:
             "query_text": user_input.strip(),
         }
 
+
+
+    @staticmethod
+    def _extract_sql_text(raw: str) -> str:
+        text = (raw or "").strip()
+        if not text:
+            return ""
+
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+
+        upper = text.upper()
+        marker = "SQL:"
+        idx = upper.find(marker)
+        if idx >= 0:
+            maybe = text[idx + len(marker):].strip()
+            if maybe:
+                text = maybe
+
+        return text
+
+    def generate_sql_with_langchain(
+        self,
+        user_input: str,
+        enhanced_plan: dict,
+        semantic_layer: dict,
+        *,
+        return_trace: bool = False,
+    ) -> str | tuple[str, dict]:
+        datasets = enhanced_plan.get("selected_dataset_candidates", []) or []
+        selected_dataset = str(datasets[0]).strip() if datasets else ""
+        if not selected_dataset:
+            raise ValueError("No dataset candidates available for SQL generation.")
+
+        datasets_map = (semantic_layer or {}).get("datasets", {}) or {}
+        dataset = datasets_map.get(selected_dataset, {}) or {}
+        if not dataset:
+            raise ValueError(f"Dataset not found in semantic layer: {selected_dataset}")
+
+        entities = (semantic_layer or {}).get("entities", {}) or {}
+        entity_tables = {name: str((payload or {}).get("table", "") or "").strip() for name, payload in entities.items()}
+
+        system_prompt = (
+            "你是 SmartBI SQL 生成器。請只輸出一條可執行的 MySQL SELECT 查詢。"
+            "不得輸出任何解釋、markdown、註解或多語句。"
+            "必須遵守語意層定義的 from / joins / metrics / dimensions / filters。"
+            "禁止選取語意層未允許欄位。"
+        )
+        human_prompt = (
+            f"user_input={user_input}\n"
+            f"selected_dataset={selected_dataset}\n"
+            f"plan_json={json.dumps(enhanced_plan, ensure_ascii=False)}\n"
+            f"dataset_json={json.dumps(dataset, ensure_ascii=False)}\n"
+            f"entity_tables_json={json.dumps(entity_tables, ensure_ascii=False)}\n"
+            "請依 plan_json 產生 SQL。若有 selected_metrics 就聚合；selected_dimensions 需出現在 SELECT 並對應 GROUP BY。"
+            "selected_filters 需完整轉成 WHERE。between 用 BETWEEN，in 用 IN。"
+            "僅回傳 SQL 本文。"
+        )
+
+        prompt = [
+            SystemMessage(
+                content=system_prompt
+            ),
+            HumanMessage(
+                content=human_prompt
+            ),
+        ]
+
+        resp = self.client.invoke(prompt)
+        raw = getattr(resp, "content", str(resp)).strip()
+        sql = self._extract_sql_text(raw)
+        if not sql:
+            raise ValueError("LLM did not return SQL text.")
+        trace = {
+            "generator": "langchain.ChatOpenAI.invoke",
+            "model": self.settings.llm_model,
+            "selected_dataset": selected_dataset,
+            "prompt": {
+                "system": system_prompt,
+                "human": human_prompt,
+            },
+            "raw_response": raw,
+            "normalized_sql": sql,
+        }
+        if return_trace:
+            return sql, trace
+        return sql
+
     def summarize_query_result_with_llm(self, user_input: str, rows: list[dict], max_rows: int = 20) -> str:
         sample_rows = rows[: max(1, int(max_rows))]
 
