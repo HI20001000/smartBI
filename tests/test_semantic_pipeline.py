@@ -883,7 +883,7 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error_codes"], ["BLOCKED_MATCH"])
 
-    def test_validator_requires_time_filter_when_governance_enabled(self):
+    def test_validator_does_not_require_time_filter_when_governance_enabled(self):
         plan = {
             "selected_metrics": ["sales.revenue"],
             "selected_dimensions": [],
@@ -893,10 +893,10 @@ class SemanticPipelineTests(unittest.TestCase):
 
         result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
 
-        self.assertFalse(result["ok"])
-        self.assertIn("TIME_FILTER_REQUIRED", result["error_codes"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["error_codes"], [])
 
-    def test_validator_empty_selection_does_not_emit_time_filter_required(self):
+    def test_validator_empty_selection_only_emits_empty_selection(self):
         plan = {
             "selected_metrics": [],
             "selected_dimensions": [],

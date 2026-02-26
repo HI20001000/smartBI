@@ -175,14 +175,7 @@ def validate_semantic_plan(
             "error_codes": error_codes,
         }
 
-    require_time_filter = bool(governance_limits.get("require_time_filter", False))
     filters = enhanced_plan.get("selected_filters", []) or []
-    has_selection_context = any(
-        bool(enhanced_plan.get(key, []) or [])
-        for key in ("selected_metrics", "selected_dimensions", "selected_dataset_candidates")
-    )
-    if require_time_filter and has_selection_context and not filters:
-        _add_error("TIME_FILTER_REQUIRED", "查詢需要時間條件（require_time_filter=true），請補充時間範圍。")
 
     time_axis = enhanced_plan.get("time_axis", {}) or {}
     if time_axis.get("has_time_filter"):
